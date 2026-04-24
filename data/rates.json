@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "updated_at": "2026-04-20T00:00:00Z",
+  "tiers": [
+    { "label": "₱1 / 10min",    "pesos": 1,   "minutes": 10 },
+    { "label": "₱5 / 1hr",      "pesos": 5,   "minutes": 60 },
+    { "label": "₱10 / 3hr",     "pesos": 10,  "minutes": 180 },
+    { "label": "₱20 / 1day",    "pesos": 20,  "minutes": 1440 },
+    { "label": "₱50 / 3days",   "pesos": 50,  "minutes": 4320 },
+    { "label": "₱100 / 7days",  "pesos": 100, "minutes": 10080 },
+    { "label": "₱300 / 30days", "pesos": 300, "minutes": 43200 }
+  ]
+}
