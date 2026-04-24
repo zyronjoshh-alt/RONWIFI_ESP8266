@@ -102,6 +102,8 @@ static bool applyConfig(JsonDocument& doc) {
   g_config.coin.window_seconds = coin["window_seconds"] | 60;
   g_config.coin.points_rate = coin["points_rate"] | 0.20;
   g_config.coin.debounce_ms = coin["debounce_ms"] | 30;
+  g_config.coin.abuse_count = coin["abuse_count"] | 3;
+  g_config.coin.ban_duration_minutes = coin["ban_duration_minutes"] | 15;
 
   JsonObject ar = doc["auto_restart"];
   g_config.auto_restart.enabled = ar["enabled"] | false;
@@ -260,6 +262,8 @@ String configToJson() {
   coin["window_seconds"] = g_config.coin.window_seconds;
   coin["points_rate"] = g_config.coin.points_rate;
   coin["debounce_ms"] = g_config.coin.debounce_ms;
+  coin["abuse_count"] = g_config.coin.abuse_count;
+  coin["ban_duration_minutes"] = g_config.coin.ban_duration_minutes;
 
   JsonObject ar = doc.createNestedObject("auto_restart");
   ar["enabled"] = g_config.auto_restart.enabled;
@@ -327,6 +331,7 @@ String configToJsonFull() {
   coin["window_seconds"] = g_config.coin.window_seconds;
   coin["points_rate"] = g_config.coin.points_rate;
   coin["debounce_ms"] = g_config.coin.debounce_ms;
+  coin["abuse_count"] = g_config.coin.abuse_count;
 
   JsonObject ar = doc.createNestedObject("auto_restart");
   ar["enabled"] = g_config.auto_restart.enabled;

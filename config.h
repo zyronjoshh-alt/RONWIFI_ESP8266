@@ -4,11 +4,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-// Firmware version — defined here so Arduino IDE compiles work
-// (PlatformIO can override via build_flags)
-#ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "0.1.0"
-#endif
 
 // Maps "D0".."D8" and "A0" strings to ESP8266 GPIO numbers
 // Returns -1 if name is "none" or unrecognized
@@ -58,6 +53,8 @@ struct CoinCfg {
   uint16_t window_seconds;
   float points_rate;
   uint16_t debounce_ms;
+  uint8_t abuse_count;
+  uint32_t ban_duration_minutes;
 };
 
 struct AutoRestartCfg {

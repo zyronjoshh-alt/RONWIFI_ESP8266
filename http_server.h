@@ -9,5 +9,5 @@ void httpServerLoop();
 // Triggers for main loop
 bool shouldArmCoinslot();
 void clearArmRequest();
-
+void httpAutoFinalizeSession();
 #endif

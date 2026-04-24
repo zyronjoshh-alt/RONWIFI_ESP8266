@@ -1,3 +1,4 @@
+
 #include "http_server.h"
 #include "config.h"
 #include "coinslot.h"
@@ -7,6 +8,7 @@
 #include <ESP8266WebServer.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
+#include <Updater.h>
 
 static ESP8266WebServer server(80);
 
@@ -15,6 +17,21 @@ static String s_currentSessionId = "";
 static String s_currentMac = "";
 static String s_currentIp = "";
 static uint32_t s_sessionStartMs = 0;
+
+// --- ANTI-ABUSE LEDGER ---
+struct AbuseRecord {
+  String mac;
+  uint8_t strikes;
+  uint32_t ban_expires_ms;
+};
+static AbuseRecord s_abuseLedger[10]; // Max 10 tracked offenders
+
+static AbuseRecord* getLedgerEntry(const String& mac) {
+  for (int i = 0; i < 10; i++) {
+    if (s_abuseLedger[i].mac == mac) return &s_abuseLedger[i];
+  }
+  return nullptr;
+}
 
 // ---------- Helpers ----------
 static void sendJson(int code, const String& body) {
@@ -58,10 +75,8 @@ static void handlePing() {
 }
 
 static void handleCoinStart() {
-  // Parse body
   StaticJsonDocument<256> doc;
-  DeserializationError err = deserializeJson(doc, server.arg("plain"));
-  if (err) {
+  if (deserializeJson(doc, server.arg("plain"))) {
     sendJsonError(400, "bad_json", "Invalid JSON body");
     return;
   }
@@ -72,29 +87,74 @@ static void handleCoinStart() {
     sendJsonError(400, "bad_params", "mac and ip required");
     return;
   }
+  mac.toUpperCase();
 
-  // If already armed/counting, reject
-  CoinState cs = coinslotGetState();
-  if (cs == CS_ARMED || cs == CS_COUNTING || cs == CS_FINALIZING) {
-    sendJsonError(409, "busy", "Coinslot busy");
-    return;
+  // 1. CHECK THE LEDGER (Are they banned?)
+  AbuseRecord* record = getLedgerEntry(mac);
+  if (record && record->strikes >= g_config.coin.abuse_count) {
+    if (millis() < record->ban_expires_ms) {
+      uint32_t remainingMins = (record->ban_expires_ms - millis()) / 60000;
+      sendJsonError(429, "banned", "Too many attempts. Please wait " + String(remainingMins + 1) + " minutes.");
+      return;
+    } else {
+      // Ban expired, reset their strikes
+      record->strikes = 0;
+      record->ban_expires_ms = 0;
+    }
   }
 
-  // Pre-check MikroTik login (3 attempts)
+  CoinState cs = coinslotGetState();
+
+  // 2. THE RESUME LOGIC
+  if (cs == CS_ARMED || cs == CS_COUNTING || cs == CS_FINALIZING) {
+    if (s_currentMac == mac) {
+      // It's the same user! Just return the active session ID (Resume)
+      String body = String("{\"session_id\":\"") + s_currentSessionId + "\",\"state\":\"" + 
+                    (cs == CS_ARMED ? "armed" : "counting") + "\"}";
+      sendJsonOk(body);
+      return;
+    } else {
+      // It's a different user trying to interrupt
+      sendJsonError(409, "busy", "Coinslot busy");
+      return;
+    }
+  }
+
+  // 3. START NEW SESSION
+  // Pre-check MikroTik login
   bool mikrotikOk = false;
   for (int i = 0; i < 3; i++) {
     if (mikrotikPing()) { mikrotikOk = true; break; }
     delay(500);
   }
   if (!mikrotikOk) {
-    sendJsonError(503, "mikrotik_unreachable", "Could not reach MikroTik after 3 attempts");
+    sendJsonError(503, "mikrotik_unreachable", "Could not reach MikroTik");
     return;
   }
 
-  // Generate simple session ID
+  // 4. APPLY A STRIKE TO THE LEDGER
+  if (!record) {
+    // Find an empty slot
+    for (int i = 0; i < 10; i++) {
+      if (s_abuseLedger[i].mac == "") { record = &s_abuseLedger[i]; break; }
+    }
+    // If array is full, trigger Limbo state!
+    if (!record) {
+      sendJsonError(503, "limbo", "System preparing to restart. Please try again in 2 minutes.");
+      return; 
+    }
+    record->mac = mac;
+    record->strikes = 0;
+  }
+  
+  record->strikes += 1;
+  if (record->strikes >= g_config.coin.abuse_count) {
+    record->ban_expires_ms = millis() + (g_config.coin.ban_duration_minutes * 60000UL);
+  }
+
+  // Initialize Session
   s_currentSessionId = String(millis(), HEX);
   s_currentMac = mac;
-  s_currentMac.toUpperCase();
   s_currentIp = ip;
   s_sessionStartMs = millis();
 
@@ -127,6 +187,15 @@ static void handleCoinDone() {
   uint32_t pulseCount = coinslotGetPulseCount();
   uint32_t pesos = pulseCount;  // 1 pulse = ₱1 (Allan coin slot programming)
 
+if (pesos > 0) {
+    // They paid! Clear their record completely.
+    AbuseRecord* record = getLedgerEntry(s_currentMac);
+    if (record) {
+      record->mac = ""; // Free the slot
+      record->strikes = 0;
+    }
+  }
+  
   if (pesos == 0) {
     coinslotDisarm();
     sendJsonOk("{\"pesos\":0,\"minutes\":0,\"status\":\"cancelled\"}");
@@ -290,6 +359,15 @@ pre.diag{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:6px;font-si
 <button class="secondary" onclick="restart()">Restart ESP</button>
 <button class="danger" onclick="factoryReset()">Factory Reset</button>
 <div id="diagOut" style="margin-top:10px"></div>
+<div class="card">
+  <h2>🚀 Firmware Upgrade</h2>
+  <div class="subtitle">Upload a compiled .bin file to update the system.</div>
+  <input type="file" id="firmwareFile" accept=".bin" style="margin-bottom: 12px;">
+  <div id="otaProgressContainer" style="display:none; width:100%; background:#e5e7eb; border-radius:6px; overflow:hidden; margin-bottom: 12px;">
+    <div id="otaProgressBar" style="width:0%; height:8px; background:#2563eb; transition:width 0.2s;"></div>
+  </div>
+  <button type="button" class="success" onclick="startFirmwareUpdate()">Upload & Flash</button>
+</div>
 </div>
 
 <!-- ====================================== FORM ====================================== -->
@@ -709,6 +787,48 @@ function restart(){
   api('POST','/admin/restart',null,function(){msg('Rebooting...','info')});
 }
 
+/* ============ OTA UPDATE ============ */
+function startFirmwareUpdate() {
+  var fileInput = $('firmwareFile');
+  if (!fileInput.files.length) {
+    msg('Please select a .bin file first.', 'err');
+    return;
+  }
+  
+  if(!confirm('Flash new firmware? Do NOT disconnect power during this process.')) return;
+
+  var file = fileInput.files[0];
+  var formData = new FormData();
+  formData.append("update", file, file.name);
+
+  $('otaProgressContainer').style.display = 'block';
+  msg('Uploading firmware. Please wait...', 'info');
+
+  var x = new XMLHttpRequest();
+  x.open('POST', '/admin/update', true);
+  
+  x.upload.addEventListener("progress", function(evt) {
+    if (evt.lengthComputable) {
+      var percentComplete = (evt.loaded / evt.total) * 100;
+      $('otaProgressBar').style.width = percentComplete + '%';
+    }
+  }, false);
+
+  x.onreadystatechange = function() {
+    if (x.readyState === 4) {
+      if (x.status >= 200 && x.status < 300) {
+        msg('✓ Firmware flashed! Vendo is rebooting...', 'ok');
+        setTimeout(function(){ window.location.reload(); }, 15000);
+      } else {
+        msg('Firmware update failed. Check serial logs.', 'err');
+        $('otaProgressContainer').style.display = 'none';
+      }
+    }
+  };
+  
+  x.send(formData);
+}
+
 /* ============ BOOT ============ */
 loadStatus();loadConfig();loadRates();
 setInterval(loadStatus,3000);
@@ -831,6 +951,36 @@ static void handleNotFound() {
   sendJsonError(404, "not_found", "Endpoint not found");
 }
 
+void httpAutoFinalizeSession() {
+  if (coinslotGetState() == CS_IDLE) return;
+  
+  Serial.println(F("[auto] Timeout reached, auto-finalizing session..."));
+  
+  coinslotSetState(CS_FINALIZING);
+  uint32_t pesos = coinslotGetPulseCount();
+  
+  if (pesos == 0) {
+    // Spammer. The strike is already on their record from handleCoinStart.
+    Serial.println(F("[auto] 0 pesos inserted. Disarming."));
+    coinslotDisarm();
+    s_currentSessionId = "";
+    return;
+  }
+
+  // They walked away but left money!
+  uint32_t minutes = calculateMinutes(pesos);
+  
+  // They bought time, so clear their strike!
+  AbuseRecord* record = getLedgerEntry(s_currentMac);
+  if (record) record->mac = ""; 
+
+  mikrotikCreateAndLoginUser(s_currentMac, macWithColons(s_currentMac), s_currentIp, minutes);
+  
+  coinslotDisarm();
+  s_currentSessionId = "";
+  Serial.println(F("[auto] Granted time to abandoned session."));
+}
+
 // ---------- Init ----------
 void httpServerInit() {
   server.on("/ping", HTTP_GET, handlePing);
@@ -870,6 +1020,40 @@ void httpServerInit() {
   server.on("/admin/factory_reset", HTTP_POST, handleAdminFactoryReset);
   server.on("/admin/restart", HTTP_POST, handleAdminRestart);
 
+// ---------- Firmware OTA Update Endpoint ----------
+  server.on("/admin/update", HTTP_POST, 
+    []() {
+      // 1. This runs when the upload is completely finished
+      server.sendHeader("Connection", "close");
+      server.send(200, "application/json", Update.hasError() ? "{\"ok\":false}" : "{\"ok\":true}");
+      delay(1000);
+      ESP.restart();
+    }, 
+    []() {
+      // 2. This runs continuously as the file chunks stream in
+      HTTPUpload& upload = server.upload();
+      
+      if (upload.status == UPLOAD_FILE_START) {
+        Serial.printf("[OTA] Update Start: %s\n", upload.filename.c_str());
+        // Calculate safe space to avoid overwriting LittleFS
+        uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+        if (!Update.begin(maxSketchSpace, U_FLASH)) { // U_FLASH targets firmware
+          Update.printError(Serial);
+        }
+      } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+          Update.printError(Serial);
+        }
+      } else if (upload.status == UPLOAD_FILE_END) {
+        if (Update.end(true)) { // true = empty the buffers
+          Serial.printf("[OTA] Update Success: %u bytes\n", upload.totalSize);
+        } else {
+          Update.printError(Serial);
+        }
+      }
+    }
+  );
+
   server.begin();
   Serial.println(F("[http] server started on :80"));
 }
@@ -880,3 +1064,4 @@ void httpServerLoop() {
 
 bool shouldArmCoinslot() { return false; }
 void clearArmRequest() {}
+
