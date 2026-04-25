@@ -110,7 +110,8 @@ static void handleCoinStart() {
     if (s_currentMac == mac) {
       // It's the same user! Just return the active session ID (Resume)
       String body = String("{\"session_id\":\"") + s_currentSessionId + "\",\"state\":\"" + 
-                    (cs == CS_ARMED ? "armed" : "counting") + "\"}";
+                    (cs == CS_ARMED ? "armed" : "counting") + 
+                    "\",\"window_seconds\":" + g_config.coin.window_seconds + "}";
       sendJsonOk(body);
       return;
     } else {
@@ -160,7 +161,9 @@ static void handleCoinStart() {
 
   coinslotArm();
 
-  String body = String("{\"session_id\":\"") + s_currentSessionId + "\",\"state\":\"armed\"}";
+  String body = String("{\"session_id\":\"") + s_currentSessionId + 
+                "\",\"state\":\"armed\"" +
+                ",\"window_seconds\":" + g_config.coin.window_seconds + "}";
   sendJsonOk(body);
 }
 
