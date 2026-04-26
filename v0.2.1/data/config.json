@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "vendo_id": 1,
+  "vendo_name": "VENDOTEST",
+  "network": {
+    "mode": "static",
+    "static_ip": "10.0.11.3",
+    "gateway": "10.0.11.1",
+    "netmask": "255.255.255.0",
+    "dns": "10.0.11.1"
+  },
+  "wifi": {
+    "ssid": "RONwifi",
+    "password": ""
+  },
+  "mqtt": {
+    "host": "10.99.0.8",
+    "port": 1883,
+    "username": "vendo-1",
+    "password": "CHANGE_ME",
+    "keepalive_seconds": 60
+  },
+  "mikrotik": {
+    "host": "10.0.11.1",
+    "port": 8728,
+    "username": "testvendo",
+    "password": "testvendo"
+  },
+  "time": {
+    "backend_url": "http://10.99.0.8:8000/api/time",
+    "mikrotik_ntp_host": "10.0.11.1",
+    "public_ntp_fallback": "pool.ntp.org"
+  },
+  "admin": {
+    "username": "admin",
+    "password": "admin"
+  },
+  "coin_settings": {
+    "window_seconds": 60,
+    "points_rate": 0.20,
+    "debounce_ms": 30,
+    "abuse_count": 3,
+    "ban_duration_minutes": 15
+  },
+  "auto_restart": {
+    "enabled": false,
+    "interval_minutes": 1440,
+    "notify_backend": true
+  },
+  "pins": {
+    "coinslot_signal_pin": "D2",
+    "coinslot_set_pin": "D1",
+    "led_pin": "none",
+    "buzzer_pin": "none",
+    "signal_active_low": true,
+    "set_active_low": true,
+    "A0_3V_reset_enabled": true
+  },
+  "config_updated_at": "2026-04-20T00:00:00Z"
+}
